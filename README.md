@@ -8,7 +8,7 @@ Based on: [Claude Code で常時コンテキスト使用量を把握できるよ
 
 ```
 🤖 Opus 4.8 │ 📊 112.0k/200.0k █████░░░░░ 56% 🟡 Caution │ ⬇2.1k ⚡108.3k ⬆1.5k │ 💡残88.0k │ ⏳~35min │ 🔄0回
-🔥 3.2k/min │ 🕐 Daily:290.4k  🗓 Weekly:290.4k  📊 Monthly:290.4k
+🔥 3.2k/min │ ⏱5h:🟢4% (06/08 17:50) │ 📅7d:🟡25% (06/10 23:00)
 ```
 
 ### 表示項目
@@ -25,9 +25,14 @@ Based on: [Claude Code で常時コンテキスト使用量を把握できるよ
 | ⏳ ETA | バーンレートからの推定枯渇時間 |
 | 🔄 圧縮回数 | セッション内のコンテキスト圧縮回数 |
 | 🔥 バーンレート | 1分あたりのトークン消費速度(セッション内の実消費の積算から算出) |
-| Daily/Weekly/Monthly | 累積消費量(セッションをまたいで積算) |
+| ⏱ 5h | Anthropic のレートリミット **5時間ローリング枠**の使用率 + リセット時刻。サブスク(Pro/Max)セッションのみ |
+| 📅 7d | Anthropic のレートリミット **7日(週次)枠**の使用率 + リセット時刻。サブスク(Pro/Max)セッションのみ |
+
+レートリミットのゾーン: 🟢 0-49% / 🟡 50-74% / 🟠 75-89% / 🔴 90%+
 
 > **Note**: Claude Code **v2.1.132以降**が必要です。v2.1.132で `context_window.total_input_tokens` の意味が「セッション累積」から「現在のコンテキスト占有量」に変わったため、本スクリプトは占有量の増分を積算する方式で消費量を追跡しています。
+>
+> `⏱5h` / `📅7d` は `rate_limits` フィールド(サブスクセッションでのみ提供。`/usage` と同じ Anthropic 発の本物のレートリミット)から表示します。API キー認証のセッションではこのフィールドが無いため `--` と表示されます。
 
 ## 対応環境
 
@@ -105,7 +110,6 @@ chmod +x ~/.claude/statusline.sh
 | `.sl_session.json` | セッション開始時刻と累積消費トークン (`ts`, `cum`) |
 | `.sl_last_state.json` | 直前レンダー時の状態 (`sid`, `tok`, `ts`) |
 | `.sl_compress.json` | 圧縮回数カウント (`sid`, `count`) |
-| `.sl_usage_log.csv` | セッション毎の消費量履歴 (90日で自動削除) |
 
 ## テスト
 
@@ -120,7 +124,7 @@ bash test-statusline.sh
 ```bash
 rm ~/.claude/statusline.sh
 rm ~/.claude/.sl_session.json ~/.claude/.sl_last_state.json
-rm ~/.claude/.sl_compress.json ~/.claude/.sl_usage_log.csv
+rm ~/.claude/.sl_compress.json
 ```
 
 `~/.claude/settings.json` から `"statusLine"` のエントリを削除する。
