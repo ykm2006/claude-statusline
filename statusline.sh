@@ -144,13 +144,13 @@ rl_color() {
 # Assemble each window segment, or "--" when the field is absent (API sessions)
 if [ "$rl_5h_pct" -ge 0 ] 2>/dev/null; then
   r=$(fmt_reset "$rl_5h_reset"); [ -n "$r" ] && r=" ($r)"
-  rl_5h_str="$(rl_color "$rl_5h_pct")${rl_5h_pct}%${r}"
+  rl_5h_str="$(rl_color "$rl_5h_pct") ${rl_5h_pct}%${r}"
 else
   rl_5h_str="--"
 fi
 if [ "$rl_7d_pct" -ge 0 ] 2>/dev/null; then
   r=$(fmt_reset "$rl_7d_reset"); [ -n "$r" ] && r=" ($r)"
-  rl_7d_str="$(rl_color "$rl_7d_pct")${rl_7d_pct}%${r}"
+  rl_7d_str="$(rl_color "$rl_7d_pct") ${rl_7d_pct}%${r}"
 else
   rl_7d_str="--"
 fi
@@ -178,7 +178,7 @@ fi
 # Output (2 lines)
 # ⬇/⚡/⬆ = latest API call: fresh input / cache read / output
 # ⏱5h / 📅7d = real Anthropic rate-limit windows (subscription sessions)
-printf "🤖 %s │ 📊 %s/%s %s %d%% %s │ ⬇%s ⚡%s ⬆%s │ 💡残%s │ ⏳~%s │ 🔄%d回\n🔥 %s │ ⏱5h:%s │ 📅7d:%s" \
+printf "🤖 %s │ 📊 %s/%s %s %d%% %s │ ⬇ %s ⚡ %s ⬆ %s │ 💡 残%s │ ⏳ ~%s │ 🔄 %d回\n🔥 %s │ ⏱ 5h:%s │ 📅 7d:%s" \
   "$model" \
   "$(fmt $current_used)" \
   "$(fmt $context_size)" \
