@@ -2,10 +2,12 @@
 # Claude Code Enhanced Status Line
 # Cross-platform: macOS / Linux / Windows (Git Bash) / WSL
 # Based on: https://dev.classmethod.jp/articles/less-than-greater-than-claude-code/
-# Model | Context | In/Cache/Out | Remaining | ETA | Compression | Burn Rate | D/W/M
+# Model | Context | In/Cache/Out | Remaining | ETA | Compression | Burn Rate
+# Line 2: Burn rate | real Anthropic rate limits (5h / 7d windows)
 #
 # Requires Claude Code v2.1.132+ (context_window.total_input_tokens = current
-# context occupancy, current_usage breakdown available).
+# context occupancy, current_usage breakdown available; rate_limits present
+# for subscription/Pro/Max sessions).
 
 # Ensure jq is on PATH (Windows/Git Bash may need ~/bin)
 export PATH="$HOME/bin:$PATH"
@@ -13,7 +15,6 @@ export PATH="$HOME/bin:$PATH"
 CLAUDE_DIR="$HOME/.claude"
 SESSION_FILE="$CLAUDE_DIR/.sl_session.json"
 LAST_STATE_FILE="$CLAUDE_DIR/.sl_last_state.json"
-USAGE_LOG="$CLAUDE_DIR/.sl_usage_log.csv"
 COMPRESS_FILE="$CLAUDE_DIR/.sl_compress.json"
 
 input=$(cat)
@@ -33,6 +34,12 @@ cu_in=$(echo "$input" | jq -r '.context_window.current_usage.input_tokens // 0')
 cu_out=$(echo "$input" | jq -r '.context_window.current_usage.output_tokens // 0')
 cu_cache_read=$(echo "$input" | jq -r '.context_window.current_usage.cache_read_input_tokens // 0')
 
+# Real Anthropic rate limits (subscription sessions only; -1 = field absent)
+rl_5h_pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // -1')
+rl_5h_reset=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // 0')
+rl_7d_pct=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // -1')
+rl_7d_reset=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // 0')
+
 remaining_tokens=$((context_size - current_used))
 [ "$remaining_tokens" -lt 0 ] && remaining_tokens=0
 current_time=$(date +%s)
@@ -48,9 +55,6 @@ fmt() {
     echo "${n:-0}"
   fi
 }
-
-# Initialize usage log
-[ ! -f "$USAGE_LOG" ] && echo "ts,sid,tokens" > "$USAGE_LOG"
 
 # --- Session tracking ---
 # LAST_STATE_FILE : {sid, tok (= context occupancy at last render), ts}
@@ -91,13 +95,7 @@ if [ "$session_id" = "$last_sid" ] && [ -f "$SESSION_FILE" ]; then
     fi
   fi
 else
-  # New session: archive the previous session's consumption
-  if [ -n "$last_sid" ] && [ -f "$SESSION_FILE" ]; then
-    prev_cum=$(jq -r '.cum // 0' "$SESSION_FILE" 2>/dev/null)
-    if [ "${prev_cum:-0}" -gt 0 ] 2>/dev/null; then
-      echo "$current_time,$last_sid,$prev_cum" >> "$USAGE_LOG"
-    fi
-  fi
+  # New session: start a fresh consumption counter
   cum=$current_used
 fi
 
@@ -124,36 +122,37 @@ if [ "$elapsed" -gt 10 ] && [ "$cum" -gt 0 ]; then
   fi
 fi
 
-# Aggregate daily/weekly/monthly (archived sessions + current session)
-# Cross-platform: try GNU date first, then BSD date, then fallback
-day_start=$(date -d "today 00:00:00" +%s 2>/dev/null \
-  || date -j -v0H -v0M -v0S +%s 2>/dev/null \
-  || echo $((current_time - 86400)))
-week_ago=$((current_time - 604800))
-month_ago=$((current_time - 2592000))
-d_total=0; w_total=0; m_total=0
+# Format real Anthropic rate limits (5h rolling / 7d weekly windows).
+# Colour by remaining headroom; show reset time if available.
+# Cross-platform reset formatting: GNU date, then BSD date.
+fmt_reset() {
+  local ts=$1
+  [ "${ts:-0}" -gt 0 ] 2>/dev/null || { echo ""; return; }
+  date -d "@$ts" +"%m/%d %H:%M" 2>/dev/null \
+    || date -r "$ts" +"%m/%d %H:%M" 2>/dev/null \
+    || echo ""
+}
 
-if [ -f "$USAGE_LOG" ]; then
-  while IFS=, read -r ts sid tok; do
-    [ "$ts" = "ts" ] && continue
-    [[ "$tok" =~ ^[0-9]+$ ]] || continue
-    [ "${ts:-0}" -ge "$day_start" ] 2>/dev/null && d_total=$((d_total + tok))
-    [ "${ts:-0}" -ge "$week_ago" ] 2>/dev/null && w_total=$((w_total + tok))
-    [ "${ts:-0}" -ge "$month_ago" ] 2>/dev/null && m_total=$((m_total + tok))
-  done < "$USAGE_LOG"
+rl_color() {
+  local p=$1
+  if [ "$p" -ge 90 ] 2>/dev/null; then echo "🔴"
+  elif [ "$p" -ge 75 ] 2>/dev/null; then echo "🟠"
+  elif [ "$p" -ge 50 ] 2>/dev/null; then echo "🟡"
+  else echo "🟢"; fi
+}
+
+# Assemble each window segment, or "--" when the field is absent (API sessions)
+if [ "$rl_5h_pct" -ge 0 ] 2>/dev/null; then
+  r=$(fmt_reset "$rl_5h_reset"); [ -n "$r" ] && r=" ($r)"
+  rl_5h_str="$(rl_color "$rl_5h_pct")${rl_5h_pct}%${r}"
+else
+  rl_5h_str="--"
 fi
-
-d_total=$((d_total + cum))
-w_total=$((w_total + cum))
-m_total=$((m_total + cum))
-
-# Prune old entries occasionally
-if [ $((RANDOM % 50)) -eq 0 ] && [ -f "$USAGE_LOG" ]; then
-  cutoff=$((current_time - 7776000))
-  tmp="$USAGE_LOG.tmp"
-  head -1 "$USAGE_LOG" > "$tmp"
-  tail -n +2 "$USAGE_LOG" | awk -F, -v c="$cutoff" '$1 >= c' >> "$tmp"
-  mv "$tmp" "$USAGE_LOG"
+if [ "$rl_7d_pct" -ge 0 ] 2>/dev/null; then
+  r=$(fmt_reset "$rl_7d_reset"); [ -n "$r" ] && r=" ($r)"
+  rl_7d_str="$(rl_color "$rl_7d_pct")${rl_7d_pct}%${r}"
+else
+  rl_7d_str="--"
 fi
 
 # Build progress bar (input-only formula, same as used_percentage)
@@ -178,7 +177,8 @@ fi
 
 # Output (2 lines)
 # ⬇/⚡/⬆ = latest API call: fresh input / cache read / output
-printf "🤖 %s │ 📊 %s/%s %s %d%% %s │ ⬇%s ⚡%s ⬆%s │ 💡残%s │ ⏳~%s │ 🔄%d回\n🔥 %s │ 🕐 Daily:%s  🗓 Weekly:%s  📊 Monthly:%s" \
+# ⏱5h / 📅7d = real Anthropic rate-limit windows (subscription sessions)
+printf "🤖 %s │ 📊 %s/%s %s %d%% %s │ ⬇%s ⚡%s ⬆%s │ 💡残%s │ ⏳~%s │ 🔄%d回\n🔥 %s │ ⏱5h:%s │ 📅7d:%s" \
   "$model" \
   "$(fmt $current_used)" \
   "$(fmt $context_size)" \
@@ -192,6 +192,5 @@ printf "🤖 %s │ 📊 %s/%s %s %d%% %s │ ⬇%s ⚡%s ⬆%s │ 💡残%s �
   "$eta_str" \
   "$compress_count" \
   "$burn_rate_str" \
-  "$(fmt $d_total)" \
-  "$(fmt $w_total)" \
-  "$(fmt $m_total)"
+  "$rl_5h_str" \
+  "$rl_7d_str"

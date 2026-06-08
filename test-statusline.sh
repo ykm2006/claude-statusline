@@ -20,6 +20,10 @@ render() { # render <sid> <total_input> <in> <out> <cache_read>
         input_tokens: $in, output_tokens: $out,
         cache_creation_input_tokens: 0, cache_read_input_tokens: $cr
       }
+    },
+    rate_limits: {
+      five_hour: { used_percentage: 4, resets_at: 1780908600 },
+      seven_day: { used_percentage: 25, resets_at: 1781100000 }
     }
   }' | bash "$SCRIPT"
   echo ""
@@ -28,7 +32,6 @@ render() { # render <sid> <total_input> <in> <out> <cache_read>
 state() {
   echo "  session: $(cat "$HOME/.claude/.sl_session.json")"
   echo "  compress: $(cat "$HOME/.claude/.sl_compress.json")"
-  echo "  log: $(tail -n +2 "$HOME/.claude/.sl_usage_log.csv" | tr '\n' ' ')"
 }
 
 echo "=== 1. new session A, used=50k (expect cum=50000, compress=0) ==="
@@ -49,7 +52,7 @@ cum=$(jq -r '.cum' "$HOME/.claude/.sl_session.json")
 printf '{"ts":%d,"cum":%d}' $((ts - 600)) "$cum" > "$HOME/.claude/.sl_session.json"
 render sessA 45000 1000 800 44000; state
 
-echo "=== 6. new session B, used=10k (expect A archived w/ 95000, cum=10000, Daily=105k) ==="
+echo "=== 6. new session B, used=10k (expect cum=10000, compress=0) ==="
 render sessB 10000 800 300 9200; state
 
 echo "=== 7. small rewind within session B: 10k -> 9k (expect NO compress, cum stays 10000) ==="
